@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Changing Values Survey</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#eef5fb;--card:#fff;--ink:#16324f;--mute:#5b7389;--line:#cfdeec;--acc:#2f6fb3;--ok:#2a8a6b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1a26;--card:#16263a;--ink:#e6eef6;--mute:#8fa6bb;--line:#2c4560;--acc:#6fb0ea;--ok:#5cc8a5}}
+:root[data-theme="dark"]{--bg:#0f1a26;--card:#16263a;--ink:#e6eef6;--mute:#8fa6bb;--line:#2c4560;--acc:#6fb0ea;--ok:#5cc8a5}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;margin:.3em 0 .1em}h2{font-size:1.15rem;margin:0 0 .3em}.eyebrow{font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;color:var(--acc);font-weight:600}
+#app{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:20px}#app .card{margin:20px 0 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;margin:20px 0;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+p{margin:.4em 0}.mute{color:var(--mute);font-size:.9rem}
+svg{width:100%;height:auto;touch-action:none;cursor:crosshair;display:block}
+.tri{fill:none;stroke:var(--ink);stroke-width:1.5}.grid{stroke:#fff;stroke-opacity:.7;stroke-width:.8}
+.lbl{fill:var(--ink);font-size:14px;font-weight:600}.dot{fill:#1c4f8f;stroke:#fff;stroke-width:2.5}
+.dots circle{fill:var(--acc);fill-opacity:.55}
+.readout{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;font-size:.9rem}
+.readout span{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px 8px}
+svg:focus-visible,button:focus-visible{outline:3px solid var(--acc);outline-offset:3px}
+button{font:inherit;background:var(--acc);color:#fff;border:0;border-radius:8px;padding:10px 22px;font-weight:600;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}button.alt{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+.scenario{border-left:5px solid var(--acc)}.scenario p{margin:.3em 0}
+.done{color:var(--ok);font-weight:600}#msg{color:#b3261e;min-height:1.4em}
+</style></head><body><main id="main">
+<div class="eyebrow">Digital Society survey</div>
+<h1 id="title"></h1>
+<p id="intro" class="mute"></p>
+<section class="card scenario" aria-labelledby="sc-h"><h2 id="sc-h">The world in 2060</h2><p id="scenario"></p></section>
+<div id="app"></div>
+<p id="msg"></p>
+</main>
+<script>
+// ===== EDIT THIS BLOCK to match your group's scenario =====
+const CONFIG = {
+  title: "Values in a Changing Society",
+  intro: "This short survey asks how society balances three values: human connection, technological efficiency and environmental sustainability. In each triangle, place one dot: the closer it is to a corner, the more weight society gives that value relative to the other two. It takes about two minutes, and you can submit once per triangle.",
+  values: ["Human connection", "Technological efficiency", "Environmental sustainability"], // top, bottom-left, bottom-right
+  futureYear: 2060,
+  futureScenario: "We believe that the world in 2060 will vary greatly from 2026. AI’s role in society will increase and become embedded into most infrastructures. For example, robots will perform surgeries, while education will move towards AI-based teaching, with more people working from home. Society will become more disconnected as virtual interactions increase. Oil prices will skyrocket as natural resources become scarce, causing global inflation. Researchers will also discover anti-ageing therapies that allow people to stay youthful for longer. Society will start moving to more eco-friendly modes of transport, like electric planes, and will move to more plant-based foods." // optional: one-sentence description of your Section 1 world shown to respondents
+};
+// ==========================================================
+
+const $ = s => document.querySelector(s);
+const PLOTS = [
+  {key:"now", heading:"Society today", q:"Where do you think society's priorities lie TODAY?"},
+  {key:"future", heading:"Society in " + CONFIG.futureYear, q:"In the 2060 world described above, where will society's priorities lie in " + CONFIG.futureYear + "?"}
+];
+const V = [[250,50],[45,390],[455,390]]; // vertices A (top), B (left), C (right)
+const ENDPOINT = "PASTE_YOUR_WEB_APP_URL_HERE"; // Google Apps Script web app URL (see setup notes)
+let saved={}, picks={}, rid=null;
+const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+
+document.title = CONFIG.title; $("#title").textContent = CONFIG.title; $("#intro").textContent = CONFIG.intro; $("#scenario").textContent = CONFIG.futureScenario;
+
+function toXY(w){return [w[0]*V[0][0]+w[1]*V[1][0]+w[2]*V[2][0], w[0]*V[0][1]+w[1]*V[1][1]+w[2]*V[2][1]];}
+function toW(x,y){ // barycentric coordinates; null if outside triangle
+  const [[x1,y1],[x2,y2],[x3,y3]] = V, d=(y2-y3)*(x1-x3)+(x3-x2)*(y1-y3);
+  const a=((y2-y3)*(x-x3)+(x3-x2)*(y-y3))/d, b=((y3-y1)*(x-x3)+(x1-x3)*(y-y3))/d, c=1-a-b;
+  return (a<0||b<0||c<0)?null:[a,b,c];
+}
+function frame(){
+  const L=(p,q)=>`<line class="grid" x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}"/>`;
+  let g=`<polygon class="tri" points="${V.map(p=>p.join(",")).join(" ")}"/>`;
+  for(let i=1;i<10;i++){const t=i/10;
+    g+=L(toXY([t,1-t,0]),toXY([t,0,1-t]));
+    g+=L(toXY([1-t,t,0]),toXY([0,t,1-t]));
+    g+=L(toXY([1-t,0,t]),toXY([0,1-t,t]));}
+  return g;
+}
+function build(){
+  $("#app").innerHTML = PLOTS.map(p=>`
+  <section class="card" id="c-${p.key}">
+    <h2>${p.heading}</h2><p>${p.q}</p>
+    
+    <svg viewBox="0 0 500 440" id="s-${p.key}" tabindex="0" role="application" aria-label="${p.heading}: triangle with three corners: ${CONFIG.values.join(", ")}. Use arrow keys to move your dot: up for ${CONFIG.values[0]}, left for ${CONFIG.values[1]}, right for ${CONFIG.values[2]}, down to reduce ${CONFIG.values[0]}.">
+      <defs>
+        <radialGradient id="g1-${p.key}" gradientUnits="userSpaceOnUse" cx="250" cy="50" r="330"><stop offset="0" stop-color="#8ec5f0"/><stop offset="1" stop-color="#8ec5f0" stop-opacity="0"/></radialGradient>
+        <radialGradient id="g2-${p.key}" gradientUnits="userSpaceOnUse" cx="45" cy="390" r="330"><stop offset="0" stop-color="#a9a6e6"/><stop offset="1" stop-color="#a9a6e6" stop-opacity="0"/></radialGradient>
+        <radialGradient id="g3-${p.key}" gradientUnits="userSpaceOnUse" cx="455" cy="390" r="330"><stop offset="0" stop-color="#6fd3c8"/><stop offset="1" stop-color="#6fd3c8" stop-opacity="0"/></radialGradient>
+      </defs>
+      ${[1,2,3].map(n=>`<polygon points="${V.map(q=>q.join(",")).join(" ")}" fill="url(#g${n}-${p.key})"/>`).join("")}
+      ${frame()}<g class="dots"></g><circle class="dot" r="9" cx="-50" cy="-50"/>
+      <text class="lbl" x="250" y="30" text-anchor="middle">${CONFIG.values[0]}</text>
+      <text class="lbl" x="45" y="416" text-anchor="start">${CONFIG.values[1]}</text>
+      <text class="lbl" x="455" y="416" text-anchor="end">${CONFIG.values[2]}</text>
+    </svg>
+    <div class="readout" id="r-${p.key}" aria-live="polite"><span>Click the triangle (or focus it and use arrow keys) to place your dot</span></div>
+    <button id="b-${p.key}" disabled>Submit</button> <span id="d-${p.key}" class="done"></span>
+  </section>`).join("");
+  PLOTS.forEach(p=>{
+    const s=$("#s-"+p.key);
+    const place=e=>{const pt=s.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
+      const q=pt.matrixTransform(s.getScreenCTM().inverse()),w=toW(q.x,q.y);
+      if(!w||saved[p.key])return; picks[p.key]=w; draw(p.key);};
+    let down=false;
+    s.addEventListener("pointerdown",e=>{down=true;place(e)});
+    s.addEventListener("pointermove",e=>{if(down)place(e)});
+    addEventListener("pointerup",()=>down=false);
+    s.addEventListener("keydown",e=>{
+      const m={ArrowUp:[0,.02],ArrowDown:[0,-.02],ArrowLeft:[1,.02],ArrowRight:[2,.02]}[e.key];
+      if(!m||saved[p.key])return; e.preventDefault();
+      const w=(picks[p.key]||[1/3,1/3,1/3]).slice(), i=m[0], v=Math.min(1,Math.max(0,w[i]+m[1])), rest=1-w[i]||0, left=1-v;
+      const others=[0,1,2].filter(j=>j!==i), sum=others.reduce((t,j)=>t+w[j],0);
+      others.forEach(j=>w[j]=sum>0?w[j]/sum*left:left/2); w[i]=v; picks[p.key]=w; draw(p.key);});
+    $("#b-"+p.key).onclick=()=>submit(p.key);
+  });
+}
+function draw(k){
+  const w=picks[k]||saved[k]; if(!w)return; const [x,y]=toXY(w), c=$("#s-"+k+" .dot");
+  c.setAttribute("cx",x);c.setAttribute("cy",y);
+  $("#r-"+k).innerHTML=CONFIG.values.map((v,i)=>`<span>${v}: ${Math.round(w[i]*100)}%</span>`).join("");
+  $("#b-"+k).disabled=!!saved[k];
+}
+function lock(k){
+  $("#b-"+k).hidden=true; $("#d-"+k).textContent="✓ Submitted — thank you"; draw(k);
+}
+async function submit(k){
+  $("#msg").textContent=""; if(!picks[k])return;
+  if(ENDPOINT.startsWith("PASTE")){$("#msg").textContent="This survey isn't connected to a data sheet yet.";return;}
+  const btn=$("#b-"+k); btn.disabled=true; const w=picks[k];
+  try{
+    const r=await fetch(ENDPOINT,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({id:rid,plot:k,a:w[0],b:w[1],c:w[2]})});
+    const j=await r.json(); if(!j.ok&&j.error!=="duplicate")throw new Error("save");
+    saved[k]=w; store.set("vs_saved",JSON.stringify(saved)); lock(k);
+  }catch(e){btn.disabled=false;$("#msg").textContent="Sorry, your response couldn't be saved. Please check your connection and try again.";}
+}
+function init(){
+  build();
+  rid=store.get("vs_id"); if(!rid){rid=(crypto.randomUUID?crypto.randomUUID():String(Math.random()).slice(2)+Date.now());store.set("vs_id",rid);}
+  try{saved=JSON.parse(store.get("vs_saved")||"{}");}catch(e){saved={};}
+  PLOTS.forEach(p=>{if(saved[p.key])lock(p.key);});
+}
+init();
+</script></body></html>
